@@ -1,0 +1,79 @@
+import csv
+
+def main():
+    file_path = 'ttk.csv'
+    measurements = read_measurements_from_csv(file_path)
+
+    kalman_filter = CVFilter()
+    measurement_groups = form_measurement_groups(measurements, max_time_diff=0.050)
+
+    tracks = []
+    track_id_list = []
+    filter_states = []
+
+    doppler_threshold = 100
+    range_threshold = 100
+    firm_threshold = 3
+    mode = '3-state'
+
+    firm_threshold = select_initiation_mode(mode)
+    miss_counts = {}
+    hit_counts = {}
+    firm_ids = set()
+    state_map = {}
+    progression_states = {
+        3: ['Poss1', 'Tentative1', 'Firm'],
+        5: ['Poss1', 'Poss2', 'Tentative1', 'Tentative2', 'Firm'],
+        7: ['Poss1', 'Poss2', 'Tentative1', 'Tentative2', 'Tentative3', 'Firm']
+    }[firm_threshold]
+
+    for group_idx, group in enumerate(measurement_groups):
+        print(f"Processing measurement group {group_idx + 1}...")
+
+        # ... (rest of your existing code)
+
+    # Print summary for each track and prepare data for CSV
+    csv_data = []
+    for track_id, track in enumerate(tracks):
+        if track:
+            summary = {
+                'Track ID': track['track_id'],
+                'Current State': track['current_state'],
+                'Time at Poss1': [m[0][3] for m in track['measurements'] if m[1] == 'Poss1'][:3],
+                'Measurements at Poss1': [m[0][:3] for m in track['measurements'] if m[1] == 'Poss1'][:3],
+                'Time at Tentative1': [m[0][3] for m in track['measurements'] if m[1] == 'Tentative1'][:3],
+                'Measurements at Tentative1': [m[0][:3] for m in track['measurements'] if m[1] == 'Tentative1'][:3],
+                'Time at Firm': [m[0][3] for m in track['measurements'] if m[1] == 'Firm'][:3],
+                'Measurements at Firm': [m[0][:3] for m in track['measurements'] if m[1] == 'Firm'][:3],
+                'Track Status': 'occupied' if track['track_id'] in firm_ids else 'free',
+                'Sf': track.get('Sf', np.zeros((6, 1))).flatten(),
+                'Sp': track.get('Sp', np.zeros((6, 1))).flatten(),
+                'Pf': track.get('Pf', np.eye(6)).flatten(),
+                'Pp': track.get('Pp', np.eye(6)).flatten(),
+            }
+            
+            print(f"\nSummary for Track {track_id}:")
+            for key, value in summary.items():
+                print(f"{key}: {value}")
+            
+            csv_data.append(summary)
+
+    # Write to CSV
+    csv_file_path = 'track_summary.csv'
+    csv_fields = ['Track ID', 'Current State', 
+                  'Time at Poss1', 'Measurements at Poss1', 
+                  'Time at Tentative1', 'Measurements at Tentative1', 
+                  'Time at Firm', 'Measurements at Firm', 
+                  'Track Status', 'Sf', 'Sp', 'Pf', 'Pp']
+
+    with open(csv_file_path, 'w', newline='') as csvfile:
+        writer = csv.DictWriter(csvfile, fieldnames=csv_fields)
+        writer.writeheader()
+        for row in csv_data:
+            writer.writerow(row)
+
+    print(f"\nTrack summary data has been written to {csv_file_path}")
+
+# Ensure to call the main function if this script is executed
+if __name__ == "__main__":
+    main()
