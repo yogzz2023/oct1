@@ -1,0 +1,126 @@
+import csv
+
+def print_and_write_summary_to_csv(tracks, hit_counts, miss_counts, firm_ids, state_map, progression_states, csv_filename):
+    with open(csv_filename, mode='w', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerow([
+            "Track ID", "Current State", "Time at Poss1", "Measurements at Poss1",
+            "Time at Tent1", "Measurements at Tent1", "Time at Firm", "Measurements at Firm",
+            "Measurement History", "Track Status", "Sf", "Sp", "Pf", "Pp"
+        ])
+
+        for track_id, track in enumerate(tracks):
+            if track:
+                # Ensure keys exist to prevent KeyError
+                track.setdefault('Sf', np.zeros((6, 1)))
+                track.setdefault('Pf', np.eye(6))
+                track.setdefault('Pp', np.eye(6))
+                track.setdefault('Sp', np.zeros((6, 1)))
+
+                # Track the times and measurements at each state
+                time_at_poss1 = []
+                measurements_at_poss1 = []
+                time_at_tent1 = []
+                measurements_at_tent1 = []
+                time_at_firm = []
+                measurements_at_firm = []
+
+                measurement_history = []
+
+                # Traverse measurements for this track
+                for (measurement, state) in track['measurements']:
+                    if state == 'Poss1':
+                        if len(time_at_poss1) < 3:  # Capture first 3 times and measurements
+                            time_at_poss1.append(measurement[3])  # Time of measurement
+                            measurements_at_poss1.append(measurement[:3])  # First 3 measurements
+                    elif state == 'Tentative1':
+                        if len(time_at_tent1) < 3:
+                            time_at_tent1.append(measurement[3])
+                            measurements_at_tent1.append(measurement[:3])
+                    elif state == 'Firm':
+                        if len(time_at_firm) < 3:
+                            time_at_firm.append(measurement[3])
+                            measurements_at_firm.append(measurement[:3])
+
+                    # Always add to measurement history (all states)
+                    measurement_history.append(measurement[:3])
+
+                # Track status: occupied or free
+                track_status = 'occupied' if track['track_id'] in firm_ids else 'free'
+
+                # Print summary for each track
+                summary = {
+                    'Track ID': track['track_id'],
+                    'Current State': track['current_state'],
+                    'Time at Poss1': time_at_poss1,
+                    'Measurements at Poss1': measurements_at_poss1,
+                    'Time at Tent1': time_at_tent1,
+                    'Measurements at Tent1': measurements_at_tent1,
+                    'Time at Firm': time_at_firm,
+                    'Measurements at Firm': measurements_at_firm,
+                    'Measurement History': measurement_history,
+                    'Track Status': track_status,
+                    'Sf': track['Sf'].flatten(),
+                    'Sp': track['Sp'].flatten(),
+                    'Pf': track['Pf'].flatten(),
+                    'Pp': track['Pp'].flatten(),
+                }
+                print(summary)
+
+                # Write the summary to CSV
+                writer.writerow([
+                    track['track_id'],
+                    track['current_state'],
+                    time_at_poss1,
+                    measurements_at_poss1,
+                    time_at_tent1,
+                    measurements_at_tent1,
+                    time_at_firm,
+                    measurements_at_firm,
+                    measurement_history,
+                    track_status,
+                    track['Sf'].flatten().tolist(),
+                    track['Sp'].flatten().tolist(),
+                    track['Pf'].flatten().tolist(),
+                    track['Pp'].flatten().tolist()
+                ])
+
+# Example usage inside your main loop
+def main():
+    # Your code as it was before
+    file_path = 'ttk.csv'
+    measurements = read_measurements_from_csv(file_path)
+
+    kalman_filter = CVFilter()
+    measurement_groups = form_measurement_groups(measurements, max_time_diff=0.050)
+
+    tracks = []
+    track_id_list = []
+    filter_states = []
+
+    doppler_threshold = 100
+    range_threshold = 100
+    firm_threshold = 3
+    mode = '3-state'
+
+    firm_threshold = select_initiation_mode(mode)
+
+    # Initialize variables outside the loop
+    miss_counts = {}
+    hit_counts = {}
+    firm_ids = set()
+    state_map = {}
+    progression_states = {
+        3: ['Poss1', 'Tentative1', 'Firm'],
+        5: ['Poss1', 'Poss2', 'Tentative1', 'Tentative2', 'Firm'],
+        7: ['Poss1', 'Poss2', 'Tentative1', 'Tentative2', 'Tentative3', 'Firm']
+    }[firm_threshold]
+
+    for group_idx, group in enumerate(measurement_groups):
+        # The rest of your main loop
+
+        # After processing all tracks, print and write to CSV
+        print_and_write_summary_to_csv(tracks, hit_counts, miss_counts, firm_ids, state_map, progression_states, "track_summary.csv")
+
+if __name__ == "__main__":
+    main()
