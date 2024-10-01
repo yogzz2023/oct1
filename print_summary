@@ -1,0 +1,150 @@
+import numpy as np
+import math
+import csv
+import pandas as pd
+from scipy.stats import chi2
+
+# Define lists to store results
+r = []
+el = []
+az = []
+
+class CVFilter:
+    # ... (rest of the CVFilter class remains the same)
+
+def read_measurements_from_csv(file_path):
+    # ... (rest of the function remains the same)
+
+def form_measurement_groups(measurements, max_time_diff=0.050):
+    # ... (rest of the function remains the same)
+
+def form_clusters_via_association(tracks, reports, kalman_filter, chi2_threshold):
+    # ... (rest of the function remains the same)
+
+def mahalanobis_distance(track, report, cov_inv):
+    # ... (rest of the function remains the same)
+
+def select_best_report(cluster_tracks, cluster_reports, kalman_filter):
+    # ... (rest of the function remains the same)
+
+def select_initiation_mode(mode):
+    # ... (rest of the function remains the same)
+
+def doppler_correlation(doppler_1, doppler_2, doppler_threshold):
+    # ... (rest of the function remains the same)
+
+def initialize_tracks(measurement_groups, doppler_threshold, range_threshold, firm_threshold, mode):
+    # ... (rest of the function remains the same)
+
+def main():
+    file_path = 'ttk.csv'
+    measurements = read_measurements_from_csv(file_path)
+
+    kalman_filter = CVFilter()
+    measurement_groups = form_measurement_groups(measurements, max_time_diff=0.050)
+
+    tracks = []
+    track_id_list = []
+    filter_states = []
+
+    doppler_threshold = 100
+    range_threshold = 100
+    firm_threshold = 3
+    mode = '3-state'
+
+    firm_threshold = select_initiation_mode(mode)
+    # Initialize variables outside the loop
+    miss_counts = {}
+    hit_counts = {}
+    firm_ids = set()
+    state_map = {}
+    progression_states = {
+        3: ['Poss1', 'Tentative1', 'Firm'],
+        5: ['Poss1', 'Poss2', 'Tentative1', 'Tentative2', 'Firm'],
+        7: ['Poss1', 'Poss2', 'Tentative1', 'Tentative2', 'Tentative3', 'Firm']
+    }[firm_threshold]
+
+    # Create a list to store the track summaries
+    track_summaries = []
+
+    for group_idx, group in enumerate(measurement_groups):
+        print(f"Processing measurement group {group_idx + 1}...")
+
+        current_measurement_group = [group]
+        current_tracks, current_track_id_list, current_miss_counts, current_hit_counts, current_firm_ids, current_state_map, current_progression_states = initialize_tracks(
+            current_measurement_group, doppler_threshold, range_threshold, firm_threshold, mode)
+
+        # Merge current tracks with existing tracks
+        for ct in current_tracks:
+            tracks.append(ct)
+        track_id_list.extend(current_track_id_list)
+        hit_counts.update(current_hit_counts)
+        miss_counts.update(current_miss_counts)
+        firm_ids.update(current_firm_ids)
+        state_map.update(current_state_map)
+
+        if len(group) > 1:  # Multiple measurements in the group
+            # ... (rest of the code for processing multiple measurements remains the same)
+
+        else:  # Single measurement in the group
+            # ... (rest of the code for processing single measurement remains the same)
+
+    # Summary generation and CSV file writing
+    for track_id, track in enumerate(tracks):
+        if track:
+            # Ensure keys exist to prevent KeyError
+            track.setdefault('Sf', np.zeros((6, 1)))
+            track.setdefault('Pf', np.eye(6))
+            track.setdefault('Pp', np.eye(6))
+            track.setdefault('Sp', np.zeros((6, 1)))
+
+            summary = {
+                'Track ID': track['track_id'],
+                'Number of Measurements': len(track['measurements']),
+                'Hit Count': hit_counts.get(track['track_id'], 0),
+                'Miss Count': miss_counts.get(track['track_id'], 0),
+                'Current State': track['current_state'],
+                'Time at Poss1': [],
+                'Measurements at Poss1': [],
+                'Time at Tent1': [],
+                'Measurements at Tent1': [],
+                'Time at Firm': [],
+                'Measurements at Firm': [],
+                'Measurement History': [m[0] for m in track['measurements']],
+                'Track Status': 'occupied' if track['track_id'] in firm_ids else 'free',
+                'Sf': track['Sf'].flatten(),
+                'Sp': track['Sp'].flatten(),
+                'Pp': track['Pp'].flatten(),
+                'Pf': track['Pf'].flatten(),
+            }
+
+            # Fill the time and measurement lists based on the track state
+            for i, (measurement, state) in enumerate(track['measurements']):
+                if state == 'Poss1':
+                    summary['Time at Poss1'].append(measurement[3])
+                    summary['Measurements at Poss1'].append(measurement[:3])
+                elif state == 'Tentative1':
+                    summary['Time at Tent1'].append(measurement[3])
+                    summary['Measurements at Tent1'].append(measurement[:3])
+                elif state == 'Firm':
+                    summary['Time at Firm'].append(measurement[3])
+                    summary['Measurements at Firm'].append(measurement[:3])
+
+            # Output or process the summary as needed
+            print(summary)
+            track_summaries.append(summary)
+
+    # Write the track summaries to a CSV file
+    with open('track_summaries.csv', 'w', newline='') as csvfile:
+        fieldnames = list(track_summaries[0].keys())
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+
+        writer.writeheader()
+        for summary in track_summaries:
+            writer.writerow(summary)
+
+    print("Track summaries written to track_summaries.csv")
+
+# Ensure to call the main function if this script is executed
+if __name__ == "__main__":
+    main()
