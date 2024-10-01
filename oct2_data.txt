@@ -1,0 +1,9 @@
+i want the write these data to csv file 
+current state: poss 1 or tentative or firm 
+time at which it is poss 1,tentative 1,firm 
+measurement history of first 3 for that track id only poss 1,tentative 1,firm (measurements)
+track status : free or occupied
+sf,sp,pf,pp
+before writing these to a csv file i want to print all these for each track id 
+
+do changes to my code and give the updated code to my existing code 
