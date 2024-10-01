@@ -1,0 +1,282 @@
+import numpy as np
+import math
+import csv
+import pandas as pd
+from scipy.stats import chi2
+# Define lists to store results
+r = []
+el = []
+az = []
+class CVFilter:
+    # ... (Rest of your CVFilter class code)
+
+def read_measurements_from_csv(file_path):
+    # ... (Your existing code)
+
+def form_measurement_groups(measurements, max_time_diff=0.050):
+    # ... (Your existing code)
+
+
+def form_clusters_via_association(tracks, reports, kalman_filter, chi2_threshold):
+    # ... (Your existing code)
+
+
+def mahalanobis_distance(track, report, cov_inv):
+    # ... (Your existing code)
+
+
+def select_best_report(cluster_tracks, cluster_reports, kalman_filter):
+    # ... (Your existing code)
+
+def select_initiation_mode(mode):
+    # ... (Your existing code)
+    
+    
+def doppler_correlation(doppler_1, doppler_2, doppler_threshold):
+    # ... (Your existing code)
+
+def initialize_tracks(measurement_groups, doppler_threshold, range_threshold, firm_threshold, mode):
+    # ... (Your existing code)
+
+def main():
+    file_path = 'ttk.csv'
+    measurements = read_measurements_from_csv(file_path)
+
+    kalman_filter = CVFilter()
+    measurement_groups = form_measurement_groups(measurements, max_time_diff=0.050)
+
+    tracks = []
+    track_id_list = []
+    filter_states = []
+
+    doppler_threshold = 100
+    range_threshold = 100
+    firm_threshold = 3
+    mode = '3-state'
+
+    firm_threshold = select_initiation_mode(mode)
+    # Initialize variables outside the loop
+    miss_counts = {}
+    hit_counts = {}
+    firm_ids = set()
+    state_map = {}
+    progression_states = {
+        3: ['Poss1', 'Tentative1', 'Firm'],
+        5: ['Poss1', 'Poss2', 'Tentative1', 'Tentative2', 'Firm'],
+        7: ['Poss1', 'Poss2', 'Tentative1', 'Tentative2', 'Tentative3', 'Firm']
+    }[firm_threshold]
+
+    for group_idx, group in enumerate(measurement_groups):
+        print(f"Processing measurement group {group_idx + 1}...")
+
+        current_measurement_group = [group]
+        current_tracks, current_track_id_list, current_miss_counts, current_hit_counts, current_firm_ids, current_state_map, current_progression_states = initialize_tracks(
+            current_measurement_group, doppler_threshold, range_threshold, firm_threshold, mode)
+
+        # Merge current tracks with existing tracks
+        for ct in current_tracks:
+            tracks.append(ct)
+        track_id_list.extend(current_track_id_list)
+        hit_counts.update(current_hit_counts)
+        miss_counts.update(current_miss_counts)
+        firm_ids.update(current_firm_ids)
+        state_map.update(current_state_map)
+
+        if len(group) > 1:  # Multiple measurements in the group
+            tracks_in_group = []
+            reports = []
+
+            for i, (rng, azm, ele, mt, md,*rest) in enumerate(group):
+                print(f"\nMeasurement {i + 1}: (az={azm}, el={ele}, r={rng}, t={mt}), md={md}\n")
+                x, y, z = sph2cart(azm, ele, rng)
+                reports.append((x, y, z))
+
+                for track_id, track in enumerate(tracks):
+                    if not track:
+                        continue
+
+                    current_state = state_map.get(track_id, None)
+                    print(f"Track {track_id} is in state: {current_state}")
+
+                    if current_state == 'free':
+                        state_map[track_id] = 'unknown'
+                        track['current_state'] = 'unknown'
+                        print(f"Track {track_id} state set to 'unknown'.")
+
+                    if current_state == 'Poss1':
+                        if track_id not in firm_ids:
+                            print("Track in 'Poss1' state, initializing filter...")
+                            kalman_filter.initialize_filter_state(x, y, z, 0, 0, 0, mt)
+                            track['Sf'] = kalman_filter.Sf.copy()
+                            track['Pf'] = kalman_filter.Pf.copy()
+                            track['Pp'] = kalman_filter.Pp.copy()
+                            track['Sp'] = kalman_filter.Sp.copy()
+                            track.setdefault('times', []).append((mt, (x, y, z)))  # Track time and measurement
+                    elif current_state == 'Tentative1':
+                        if track_id not in firm_ids:
+                            print("Track in 'Tentative' state, performing prediction and update...")
+                            kalman_filter.predict_step(mt)
+                            Z = np.array([[x], [y], [z]])
+                            kalman_filter.update_step(Z)
+                            print("Updated filter state:", kalman_filter.Sf.flatten())
+                            track['Sf'] = kalman_filter.Sf.copy()
+                            track['Pf'] = kalman_filter.Pf.copy()
+                            track['Pp'] = kalman_filter.Pp.copy()
+                            track['Sp'] = kalman_filter.Sp.copy()
+                            track.setdefault('times', []).append((mt, (x, y, z)))  # Track time and measurement
+                    elif current_state == 'Firm':
+                        print("Track in 'Firm' state, performing prediction and update...")
+                        kalman_filter.predict_step(mt)
+                        Z = np.array([[x], [y], [z]])
+                        kalman_filter.update_step(Z)
+                        print("Updated filter state:", kalman_filter.Sf.flatten())
+                        track['Sf'] = kalman_filter.Sf.copy()
+                        track['Pf'] = kalman_filter.Pf.copy()
+                        track['Pp'] = kalman_filter.Pp.copy()
+                        track['Sp'] = kalman_filter.Sp.copy()
+                        track.setdefault('times', []).append((mt, (x, y, z)))  # Track time and measurement
+
+                tracks_in_group.append(kalman_filter.Sf[:3].flatten())
+
+            clusters = form_clusters_via_association(tracks_in_group, reports, kalman_filter, chi2_threshold=kalman_filter.gate_threshold)
+            print("Clusters formed:", clusters)
+
+            for cluster_tracks, cluster_reports in clusters:
+                if cluster_tracks and cluster_reports:
+                    best_track_idx, best_report = select_best_report(cluster_tracks, cluster_reports, kalman_filter)
+                    if best_report is not None:
+                        print(f"Selected Best Report for Track {best_track_idx + 1}: {best_report}")
+                        Z = np.array([[best_report[0]], [best_report[1]], [best_report[2]]])
+                        kalman_filter.update_step(Z)
+                        print("Updated filter state:", kalman_filter.Sf.flatten())
+                        r_val, az_val, el_val = cart2sph(kalman_filter.Sf[0], kalman_filter.Sf[1], kalman_filter.Sf[2])
+                        filter_states.append(kalman_filter.Sf.flatten())
+
+                        # Update hit counts
+                        if best_track_idx is not None and 0 <= best_track_idx < len(hit_counts):
+                            hit_counts[best_track_idx] += 1
+                        else:
+                            print(f"Invalid best_track_idx: {best_track_idx}")
+                        miss_counts[best_track_idx] = 0
+
+        else:  # Single measurement in the group
+            rng, azm, ele, mt, md,*rest = group[0]
+            print(f"\nSingle Measurement: (az={azm}, el={ele}, r={rng}, t={mt}), md={md}\n")
+            x, y, z = sph2cart(azm, ele, rng)
+
+            assigned = False
+            for track_id, track in enumerate(tracks):
+                if not track:
+                    continue
+
+                current_state = state_map.get(track_id, None)
+                print(f"Track {track_id} is in state: {current_state}")
+
+                if current_state == 'free':
+                    state_map[track_id] = 'unknown'
+                    track['current_state'] = 'unknown'
+                    print(f"Track {track_id} state set to 'unknown'.")
+
+                if current_state == 'Poss1' or current_state == 'Tentative1':
+                    distance = np.linalg.norm(np.array([x, y, z]) - np.array(track['measurements'][-1][0][5:8]))
+                    if distance < range_threshold:
+                        print("Assigning measurement to track.")
+                        kalman_filter.predict_step(mt)
+                        Z = np.array([[x], [y], [z]])
+                        kalman_filter.update_step(Z)
+                        assigned = True
+                        track['Sf'] = kalman_filter.Sf.copy()
+                        track['Pf'] = kalman_filter.Pf.copy()
+                        track['Pp'] = kalman_filter.Pp.copy()
+                        track['Sp'] = kalman_filter.Sp.copy()
+
+                        new_state = progression_states[min(progression_states.index(current_state) + 1, len(progression_states) - 1)]
+                        track['current_state'] = new_state
+                        track['measurements'].append((group[0], new_state))
+                        
+                        # Update hit counts
+                        hit_counts[track_id] += 1
+                        miss_counts[track_id] = 0
+                        break
+
+            if not assigned:
+                free_track_idx = next((i for i, track in enumerate(track_id_list) if track['state'] == 'free'), None)
+                if free_track_idx is not None:
+                    new_track_id = track_id_list[free_track_idx]['id']
+                    tracks.append({
+                        'track_id': new_track_id,
+                        'measurements': [(group[0], 'Poss1')],
+                        'Sf': np.zeros((6, 1)),
+                        'Pf': np.eye(6),
+                        'Pp': np.eye(6),
+                        'Sp': np.zeros((6, 1)),
+                        'current_state': 'Poss1'
+                    })
+                    track_id_list[free_track_idx]['state'] = 'occupied'
+                    kalman_filter.initialize_filter_state(x, y, z, 0, 0, 0, mt)
+                    track['Sf'] = kalman_filter.Sf.copy()
+                    track['Pf'] = kalman_filter.Pf.copy()
+                    track['Pp'] = kalman_filter.Pp.copy()
+                    track['Sp'] = kalman_filter.Sp.copy()
+                    hit_counts[new_track_id] = 1
+                    miss_counts[new_track_id] = 0
+                else:
+                    print("No available tracks to assign measurement.")
+
+    # Summary generation and CSV writing
+    csv_data = []
+    for track_id, track in enumerate(tracks):
+        if track:
+            # Ensure keys exist to prevent KeyError
+            track.setdefault('Sf', np.zeros((6, 1)))
+            track.setdefault('Pf', np.eye(6))
+            track.setdefault('Pp', np.eye(6))
+            track.setdefault('Sp', np.zeros((6, 1)))
+
+            # Extract relevant data for each track
+            time_at_poss1 = [t for t, _ in track['times'] if track['measurements'][track['times'].index((t, _))][1] == 'Poss1']
+            time_at_tent1 = [t for t, _ in track['times'] if track['measurements'][track['times'].index((t, _))][1] == 'Tentative1']
+            time_at_firm = [t for t, _ in track['times'] if track['measurements'][track['times'].index((t, _))][1] == 'Firm']
+
+            measurements_at_poss1 = [m[0] for m in track['measurements'] if m[1] == 'Poss1'][:3]  # First 3 measurements
+            measurements_at_tent1 = [m[0] for m in track['measurements'] if m[1] == 'Tentative1'][:3]
+            measurements_at_firm = [m[0] for m in track['measurements'] if m[1] == 'Firm'][:3]
+
+            track_status = 'occupied' if track['track_id'] in firm_ids else 'free'
+
+            summary = {
+                'Track ID': track['track_id'],
+                'Current State': track['current_state'],
+                'Time at Poss1': time_at_poss1,
+                'Measurements at Poss1': measurements_at_poss1,
+                'Time at Tent1': time_at_tent1,
+                'Measurements at Tent1': measurements_at_tent1,
+                'Time at Firm': time_at_firm,
+                'Measurements at Firm': measurements_at_firm,
+                'Measurement History': [m[0] for m in track['measurements']],
+                'Track Status': track_status,
+                'Sf': track['Sf'].flatten().tolist(),
+                'Sp': track['Sp'].flatten().tolist(),
+                'Pp': track['Pp'].flatten().tolist(),
+                'Pf': track['Pf'].flatten().tolist(),
+            }
+
+            print(summary)
+            csv_data.append(summary)
+
+    # Write data to CSV
+    csv_columns = ['Track ID', 'Current State', 'Time at Poss1', 'Measurements at Poss1', 'Time at Tent1', 'Measurements at Tent1',
+                   'Time at Firm', 'Measurements at Firm', 'Measurement History', 'Track Status', 'Sf', 'Sp', 'Pp', 'Pf']
+
+    try:
+        with open('track_data.csv', 'w', newline='') as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=csv_columns)
+            writer.writeheader()
+            for row in csv_data:
+                writer.writerow(row)
+    except IOError:
+        print("I/O error")
+
+# Ensure to call the main function if this script is executed
+if __name__ == "__main__":
+    main()
